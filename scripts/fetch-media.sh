@@ -1,0 +1,46 @@
+#!/usr/bin/env bash
+# Fetches the two folders this copy is stored without, to stay small:
+#
+#   catalogue/media       the exercise pictures and animations (about 216 MB)
+#   catalogue/exercises   the exercise source data the catalogue scripts read
+#
+# They are downloaded from the project Gymify was made from, at the exact commit it was made
+# from, into a temporary folder that is deleted again. Nothing else is fetched and no git
+# repository is left behind, so this folder stays free to be a repository of your own.
+#
+#   bash scripts/fetch-media.sh
+#
+# Run it once, then commit both folders to your own repository. From then on this script has no
+# job left and can be deleted.
+#
+# The media is licensed separately from the code, and not to you: read NOTICE.md before you
+# publish a copy that includes it.
+set -euo pipefail
+cd "$(dirname "$0")/.."
+
+ORIGIN=https://github.com/DuarteSantos8/openGym.git
+COMMIT=50ab7f24e3c4ee70e7f26b3beb426f571e03414b
+
+want=()
+for dir in catalogue/exercises catalogue/media; do [ -d "$dir" ] || want+=("$dir"); done
+if [ ${#want[@]} -eq 0 ]; then echo "Both folders are already here."; exit 0; fi
+
+tmp=$(mktemp -d)
+trap 'rm -rf "$tmp"' EXIT
+git -C "$tmp" init -q
+git -C "$tmp" remote add origin "$ORIGIN"
+echo "Looking up the file list ..."
+# Without file contents: only the two folders' files are asked for below.
+git -C "$tmp" fetch -q --depth 1 --filter=blob:none origin "$COMMIT"
+
+for dir in "${want[@]}"; do
+  echo "Fetching $dir ..."
+  # All of a folder's files in one request. Left to itself git asks for them one at a time.
+  git -C "$tmp" ls-tree -r --format='%(objectname)' "$COMMIT" -- "$dir" \
+    | git -C "$tmp" -c fetch.negotiationAlgorithm=noop fetch -q origin --no-tags --no-write-fetch-head \
+        --recurse-submodules=no --filter=blob:none --stdin
+  git -C "$tmp" checkout -q "$COMMIT" -- "$dir"
+  mkdir -p "$(dirname "$dir")"
+  mv "$tmp/$dir" "$dir"
+done
+echo "Done: ${want[*]}"

@@ -1,0 +1,75 @@
+# Publishes Gymify to GitHub Pages: https://<your-name>.github.io/<this-repository>/
+#
+# One-time setup in the repository: Settings → Pages → Source: "GitHub Actions". After that every
+# push to main that touches the app rebuilds and republishes it; "Run workflow" does it by hand.
+#
+# Pages serves static files only, so this is the device-only build (VITE_DEMO=1,
+# frontend/src/lib/demo.js): no server, no accounts. The app starts empty, asks who is training
+# on first open and keeps everything in that visitor's own browser.
+#
+# VITE_SOURCE_URL puts a "Source code" link to this repository on the About page. The licence
+# (AGPL-3.0, section 13) wants everyone who uses a hosted copy to be able to get its source.
+#
+# The exercise pictures come from catalogue/media and are copied next to the build. They are
+# licensed separately from the code: read NOTICE.md before publishing a copy with them. Without
+# that folder the step is skipped and the app shows exercises without pictures.
+name: Publish to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'frontend/**'
+      - 'catalogue/**'
+      - 'scripts/catalogue/**'
+      - '.github/workflows/pages.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+        working-directory: frontend
+      - run: npm run build
+        working-directory: frontend
+        env:
+          VITE_DEMO: '1'
+          VITE_SOURCE_URL: ${{ github.server_url }}/${{ github.repository }}
+      - name: Exercise pictures, if this repository carries them
+        run: |
+          if [ -d catalogue/media ]; then
+            node scripts/catalogue/stage-media.mjs frontend/dist
+          else
+            echo "catalogue/media is not in this repository: publishing without exercise pictures."
+          fi
+      - uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6.0.0
+      - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
+        with:
+          path: frontend/dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - id: deploy
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1
